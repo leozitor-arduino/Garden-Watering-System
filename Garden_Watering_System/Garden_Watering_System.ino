@@ -1,11 +1,3 @@
-/*******************************************************************************
-* Garden Watering System
-*
-* turns on/off a solenoid valve for watering system, depending on a time schedule
-*
-*
-* 02 Aug 2020 Leozítor Floro de Souza
-*******************************************************************************/
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
@@ -13,12 +5,12 @@
 #include <ArduinoOTA.h>
 
 #ifndef STASSID
-#define STASSID "WiFi House"
+#define STASSID "WIFI-HOME"
 #define STAPSK  "casa1234"
 #endif
 
 #define __ASSERT_USE_STDERR
-#define MAX_TIME_VALVE 360 
+#define MAX_TIME_VALVE 360
 
 
 const char* ssid = STASSID;
@@ -29,13 +21,13 @@ const int dst = 0;
 
 const int max_time = MAX_TIME_VALVE; // limiting the max minutes of valve to keep open each day in minutes
 
-const int pino_led = D4; // pino onde o LED está conectado
+const int sink_valve = D0; // Pin Sink Valve is connected
 
 // Set Daily Schedule Time for the Valve to be open
 struct tm start_t, end_t = {0}; // time struct pointers
 double diff_start, diff_end, valve_time;
 
-const int sinkValve = D0; // Relay of Solenoid Sink Valve controlled by pin D1
+// need to create emergency break to closes at a maximum seted time like 240 minutes
 
 void setupFirmUpdateOTA() {
   /* ----------  Firmware Update OTA ----------  */
@@ -140,7 +132,7 @@ struct tm* getTimeNow(){
 void updateDate(struct tm* a_tm ){
   /* ----------  Update day month and year to current time ----------  */
   struct tm* p_tm = getTimeNow();
-  
+
   a_tm->tm_year = p_tm->tm_year;
   a_tm->tm_mon = p_tm->tm_mon;
   a_tm->tm_mday = p_tm->tm_mday;
@@ -149,26 +141,25 @@ void updateDate(struct tm* a_tm ){
 void updateScheduleDay(){
   /* ----------  Update day month and year of Start and End Schedule to current ----------  */
   struct tm* p_tm = getTimeNow();
-  
+
   updateDate(&start_t);
   updateDate(&end_t);
+
 }
 
 void setup() {
 
   setupFirmUpdateOTA(); // setup firmware update OTA
   setupTime(); // setup current time
-  pinMode(pino_led, OUTPUT); // pino D2
-  pinMode(sinkValve, OUTPUT); // pin D0
-  digitalWrite(sinkValve, HIGH);
+  pinMode(sink_valve, OUTPUT); // pino 13
 
-  /* setting schedule time */
   // start schedule
-  start_t.tm_hour = 15;
-  start_t.tm_min = 8;
+  start_t.tm_hour = 17;
+  start_t.tm_min = 00;
+
   // end schedule
-  end_t.tm_hour = 15;
-  end_t.tm_min = 9;
+  end_t.tm_hour = 18;
+  end_t.tm_min =00;
 
   valve_time = difftime(mktime(&end_t), mktime(&start_t)); // lenght in minutes the valve should be open
   if((valve_time > 0) && (valve_time <= max_time)){ // check if start time is less then end time
@@ -176,19 +167,21 @@ void setup() {
   }// give that i couldn't use assert
 }
 
-void loop() { 
+void loop() {
   ArduinoOTA.handle(); // Firmware Update OTA
   updateScheduleDay(); // update day/mont/year of start and end dates
   printTime(getTimeNow()); // print current time
+  printTime(&start_t);
+  printTime(&end_t);
   diff_start = difftime(mktime(&start_t), mktime(getTimeNow())); // difference to open valve
   diff_end = difftime(mktime(&end_t), mktime(getTimeNow())); // difference to close valve
+  printf("Seconds left to Open Valve = %f\n", diff_start);
+  printf("Seconds left to Close Valve = %f\n", diff_end);
 if ((diff_start < 0) && (diff_end > 0)) {
-  digitalWrite(sinkValve, LOW); // opens the valve
-  digitalWrite(pino_led, LOW); // apaga o LED
-  Serial.println("LED Ligado");
+    digitalWrite(sink_valve, LOW); // apaga o LED
+    Serial.println("LED Ligado");
 }else {
-  digitalWrite(sinkValve, HIGH); // opens the valve
-  digitalWrite(pino_led, HIGH); // acende o LED
+    digitalWrite(sink_valve, HIGH); // acende o LED
 }
-delay(1000);
+delay(500);
 }
