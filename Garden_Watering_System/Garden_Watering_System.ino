@@ -6,12 +6,13 @@
 #include <ArduinoOTA.h>
 
 #ifndef STASSID
-#define STASSID "WiFi House"
-#define STAPSK  "casa1234"
+#define STASSID "<WIFI NAME>"
+#define STAPSK  "<PASSWORD>"
 #endif
 
 #define __ASSERT_USE_STDERR
 #define MAX_TIME_VALVE 120 // emergency stop in minutes
+#define DB_REFRESH 1 // TIME WHICH DB WILL UPDATE
 
 
 const char *ssid = STASSID;
@@ -21,9 +22,11 @@ const int timezone = -4 * 3600;
 const int dst = 0;
 
 const int max_time = MAX_TIME_VALVE * 60; // limiting the max minutes of valve to keep open each day in minutes converted
+const int db_refresh = DB_REFRESH * 60000; // limiting the max minutes of valve to keep open each day in minutes converted
 bool valve_active = false; // emergency breaking valve system
 
 const int sink_valve = D0; // Pin Sink Valve is connected
+unsigned long sendDataPrevMillis = 0;  // data prev
 
 // Set Daily Schedule Time for the Valve to be open
 struct tm start_t, end_t = {0}; // time struct pointers
@@ -36,14 +39,14 @@ double diff_start, diff_end, valve_time;
 #include "addons/RTDBHelper.h"
 
 /* API Key */
-#define API_KEY "**********"
+#define API_KEY "<DB_KEY>"
 
 /* RTDB URL */
-#define DATABASE_URL "**********" //<databaseName>.firebaseio.com or <databaseName>.<region>.firebasedatabase.app
+#define DATABASE_URL "<DB_URL>" //<databaseName>.firebaseio.com or <databaseName>.<region>.firebasedatabase.app
 
 /* 4. Define the user Email and password that alreadey registerd or added in your project */
-#define USER_EMAIL "**********"
-#define USER_PASSWORD "**********"
+#define USER_EMAIL "<USER_EMAIL>"
+#define USER_PASSWORD "<PASSWORD>"
 
 //Define Firebase Data object
 FirebaseData fbdo;
@@ -148,8 +151,8 @@ void setupTime() {
     Serial.println("\nTime response....OK");
 }
 
-void printTime(struct tm *p_tm) {
     /* ----------  Print Time ----------  */
+void printTime(struct tm *p_tm) {
     Serial.print(p_tm->tm_mday);
     Serial.print("/");
     Serial.print(p_tm->tm_mon + 1);
@@ -193,7 +196,6 @@ void updateScheduleDay() {
 
 void valveSafetyCheck(){
     valve_time = difftime(mktime(&end_t), mktime(&start_t)); // lenght in minutes the valve should be open
-    Serial.println(valve_time);
     if ((valve_time > 0) && (valve_time <= max_time)) { // check if start time is less then end time
         valve_active = true;
     } else {
@@ -204,18 +206,19 @@ void valveSafetyCheck(){
 }
 
 void valveOpeningSystem() {
-    diff_start = difftime(mktime(&start_t), mktime(getTimeNow())); // difference to open valve
-    diff_end = difftime(mktime(&end_t), mktime(getTimeNow())); // difference to close valve
-    if ((diff_start < 0) && (diff_end > 0)) {
-        digitalWrite(sink_valve, LOW); // apaga o LED
-        Serial.println("Torneira aberta");
-    } else {
-        digitalWrite(sink_valve, HIGH); // acende o LED
-    }
+      diff_start = difftime(mktime(&start_t), mktime(getTimeNow())); // difference to open valve
+      diff_end = difftime(mktime(&end_t), mktime(getTimeNow())); // difference to close valve
+//      printf("Seconds left to Open Valve = %f\n", diff_start);
+//      printf("Seconds left to Close Valve = %f\n", diff_end);
+      if ((diff_start < 0) && (diff_end > 0) && valve_active) {
+          digitalWrite(sink_valve, LOW); // apaga o LED
+          Serial.println("Torneira aberta");
+      } else {
+          digitalWrite(sink_valve, HIGH); // acende o LED
+      }
 }
 
 void setup() {
-
     setupFirmUpdateOTA(); // setup firmware update OTA
     setupTime(); // setup current time
     setupFirebase(); // Setup firebase connection
@@ -234,21 +237,26 @@ void loop() {
     ArduinoOTA.handle(); // Firmware Update OTA
     updateScheduleDay(); // update day/mont/year of start and end dates
     valveSafetyCheck();
-    printTime(getTimeNow()); // print current time
-    printTime(&start_t);
-    printTime(&end_t);
-    printf("Seconds left to Open Valve = %f\n", diff_start);
-    printf("Seconds left to Close Valve = %f\n", diff_end);
-    if (Firebase.ready() && valve_time){
-        valveOpeningSystem();
+    valveOpeningSystem();
+//    printTime(getTimeNow()); // print current time
+//    printTime(&start_t);
+//    printTime(&end_t);
+    if (Firebase.ready() && (millis() - sendDataPrevMillis > db_refresh || sendDataPrevMillis == 0)){
+      Serial.print("Current Time: ");
+      printTime(getTimeNow()); // print current time
+      Serial.print("Start Time: ");
+      printTime(&start_t);
+      Serial.print("End Time: ");
+      printTime(&end_t);
+        sendDataPrevMillis = millis();
         start_t.tm_hour = Firebase.getInt(fbdo, "/valve_schedule/start_t/hour") ? fbdo.intData() : 0;
         start_t.tm_min = Firebase.getInt(fbdo, "/valve_schedule/start_t/min") ? fbdo.intData() : 0;
 
         // end schedule
         end_t.tm_hour = Firebase.getInt(fbdo, "/valve_schedule/end_t/hour") ? fbdo.intData() : 0;
         end_t.tm_min = Firebase.getInt(fbdo, "/valve_schedule/end_t/min") ? fbdo.intData() : 0;
-        Serial.print("current situation");
-        Serial.println(valve_active);
+        
+        // setting vale active
+        Firebase.setBool(fbdo,  "/valve_active", valve_active);
     }
-    delay(500);
 }
